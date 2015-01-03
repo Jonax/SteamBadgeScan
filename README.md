@@ -38,9 +38,11 @@ Usage
 
 Where *username* is the profile ID as listed in the profile's URL on steamcommunity.com.  e.g.
 	
-	http://steamcommunity.com/id/**jonaxc**
-	
-	scan.py *jonaxc*
+	http://steamcommunity.com/id/jonaxc
+
+becomes
+
+	scan.py jonaxc
 
 Limitations
 -----------
