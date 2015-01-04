@@ -40,17 +40,46 @@ __maintainer__ = "Jon Wills"
 __email__ = "git@chromaticaura.net"
 __status__ = "Development"
 
+# ================================================================
+# GLOBALS / CONSTS
+# ================================================================
+
+MAX_LEVEL_NORMAL = 5		# Max level 5 for Normal game badges
+MAX_LEVEL_FOIL = 1			# Max level 1 for Foil game badges
+
 global TARGET_STEAM_USERNAME
-MAX_LEVEL_NORMAL = 5
-MAX_LEVEL_FOIL = 1
 
 # ================================================================
 # GENERAL FUNCTIONS
 # ================================================================
 
+def Sleep():
+	'''
+	Forces the script to wait an random amount of time of 1-5
+	seconds before proceeding.  Used to stagger web requests to 
+	SteamCommunity in a non-uniform manner, to avoid excessively 
+	spamming the site.  
+	'''
+	t = 1.0 + (random.random() * 4.0)
+	time.sleep(t)
+
 def GetSteamBadgeHtml(appId, foil = False):
+    '''
+	Retrieves & returns the HTML for the display page of a given badge, based 
+	on the game's Steam App ID & rarity.  
+
+    Args:
+		appId: The Steam App ID for the target game (integer)
+		foil: The rarity to search for; True for Foil, False for Normal.  
+
+    Returns:
+		An lxml.html document containing the page source that displays the 
+		user's progress for the target badge.  
+    '''
 	url = "http://steamcommunity.com/id/%s/gamecards/%d" % (TARGET_STEAM_USERNAME, appId)
 	
+	# If retrieving the Foil badge, append the border attribute.  Normal badges
+	# can be retrieved either by setting border to 0 or by omitting it altogether.  
 	if foil:
 		url = url + "/?border=1"
 	
@@ -60,6 +89,19 @@ def GetSteamBadgeHtml(appId, foil = False):
 	return etree.HTML(r.text)
 
 def GetSteamMarketUrl(appId, foil = False):
+	'''
+	Generates the URL for retrieving the Community Market listings for a 
+	given badge's cards in JSON form.  
+
+    Args:
+		appId: The Steam App ID for the target game (integer)
+		foil: The rarity to search for; True for Foil, False for Normal.  
+
+    Returns:
+		The URL for retrieving the listings for the target badge's cards in 
+		JSON form.  
+    '''
+
 	borderId = int(foil)
 
 	# Trading cards are retrieved Z-A to simplify looking for matching cards
@@ -70,6 +112,18 @@ def GetSteamMarketUrl(appId, foil = False):
 	return url
 	
 def GetSteamUserGamesJson():
+	'''
+	Retrieves the JSON containing the list of games owned by the user.  
+
+    Returns:
+		The URL for retrieving the listings for the target badge's cards in 
+		JSON form.  
+    '''
+
+	# The Games page's HTML source has the target JSON list already in a 
+	# usable form, embedded inside a <script> tag halfway down the page.  
+	# All that's needed is to capture the text form of the list, 
+	# evaluate and return to caller.  
 	GAMES_JSON_REGEX = re.compile("var rgGames = (?P<games_json>.+);")
 
 	url = "http://steamcommunity.com/id/%s/games/?tab=all&sort=name" % TARGET_STEAM_USERNAME
@@ -79,13 +133,20 @@ def GetSteamUserGamesJson():
 	match = GAMES_JSON_REGEX.search(r.text)
 		
 	return json.loads(match.group("games_json"))
-
-def Sleep():
-	t = 1.0 + (random.random() * 5.0)
-	
-	time.sleep(t)
 		
 def CheckForSteamBadge(appId, foil = False):
+	'''
+	Determines whether a badge exists for the given game & rarity.  
+
+    Args:
+		appId: The Steam App ID for the target game (integer)
+		foil: The rarity to search for; True for Foil, False for Normal.  
+
+    Returns:
+		A bool representing whether the badge exists - True if exists, 
+		False otherwise.  
+    '''
+	
 	url = "http://steamcommunity.com/id/%s/gamecards/%d" % (TARGET_STEAM_USERNAME, appId)
 	
 	if foil:
@@ -94,9 +155,25 @@ def CheckForSteamBadge(appId, foil = False):
 	r = requests.get(url)
 	Sleep()
 	
+	# If someone attempts to access an invalid badge, the server will 
+	# redirect it to the Badges page.  We take advantage of that here - 
+	# If the URL remains the same, it's a valid badge.  
 	return r.url == url
 
 def GetExistingBadgeLevel(html):
+	'''
+	Determines whether the user already has the target badge, and which level
+	if so.  
+
+    Args:
+		appId: The Steam App ID for the target game (integer)
+		foil: The rarity to search for; True for Foil, False for Normal.  
+
+    Returns:
+		The level of the badge owned by the user.  If the user hasn't made 
+		the given badge yet, a value of 0 is returned to signify such.
+    '''
+	
 	EARNED_LEVEL_REGEX = re.compile("Level (?P<level>[0-9]+)")
 	EARNED_BADGE_SELECTOR = CSSSelector("div.badge_info_description")
 
@@ -123,6 +200,17 @@ def GetExistingBadgeLevel(html):
 	return int(levelMatch.group("level"))
 	
 def GetBadgeCards(html):
+	'''
+	Retrieves the cards for the given badge.    
+
+    Args:
+		html: The lxml.html document for the source page.  
+
+    Returns:
+		A dictionary containing the list of cards for the target badge, keyed 
+		with the card's name.  
+    '''
+	
 	CARD_SELECTOR = CSSSelector("div.badge_card_set_card")
 	CARD_TEXT_SELECTOR = CSSSelector("div.badge_card_set_text")
 
@@ -147,6 +235,16 @@ def GetBadgeCards(html):
 	return cards
 
 def CanLevelBadgeUp(badge):
+	'''
+	Determines whether the user can level up the given badge.  
+
+    Args:
+		badge: Dictionary containing info for the given badge.  
+
+    Returns:
+		A boolean representing whether the user can level up the given badge.  
+    '''
+	
 	if badge["rarity"] == "normal":
 		return badge["level"] < MAX_LEVEL_NORMAL
 	elif badge["rarity"] == "foil":
@@ -155,6 +253,18 @@ def CanLevelBadgeUp(badge):
 		return False
 
 def GetMarketListingsForBadge(appId, foil = False):
+	'''
+	Retrieves the listings for the given badge's cards from the Community 
+	Market.  
+
+    Args:
+		appId: The Steam App ID for the target game (integer)
+		foil: The rarity to search for; True for Foil, False for Normal.  
+
+    Returns:
+		A list of listings for each of the cards for the given badge.  
+    '''
+
 	MARKET_LISTING_SELECTOR = CSSSelector("div.market_listing_row")
 	CARD_NAME_SELECTOR = CSSSelector("span.market_listing_item_name")
 	CARD_QUANTITY_SELECTOR = CSSSelector("span.market_listing_num_listings_qty")
@@ -165,6 +275,9 @@ def GetMarketListingsForBadge(appId, foil = False):
 	
 	url = GetSteamMarketUrl(appId, foil)
 
+	# Loop to retry the current search in the event that a request returns
+	# back an error; the number of requests potentially run mean that there
+	# will be some failures statistically.  
 	validResult = False
 	while not validResult:
 		r = requests.get(url)
@@ -181,6 +294,9 @@ def GetMarketListingsForBadge(appId, foil = False):
 	for e in MARKET_LISTING_SELECTOR(html):
 		link = e.getparent().get("href")
 		
+		# When querying steamcommunity.com without being logged in, all 
+		# prices should be in USD.  Hence we can strip out everything but
+		# the number.  
 		match = USD_PRICE_REGEX.match(CARD_PRICE_SELECTOR(e)[0].text)
 		
 		listings.append({
@@ -193,14 +309,26 @@ def GetMarketListingsForBadge(appId, foil = False):
 	return listings
 
 def CompareMarketData(a, b):
+	'''
+	Comparer to determine sorting order of the badges.  
+    '''
+	
+	# Reduce the prices to 2 d.p. (to remove floating point discrepancies),
+	# then compare between the two.  A cheaper set price takes priority.  
 	value = Decimal(a["set_price"]).quantize(Decimal('.01')) - Decimal(b["set_price"]).quantize(Decimal('.01'))
 	if value != 0:
 		return (value > 0) and 1 or -1
 		
+	# Compare how many complete sets can be made from what's currently 
+	# available on the Community Market.  A higher availability takes 
+	# priority, as more cards means the price will likely stay lower and
+	# fluctuate less (e.g. a shortage on one card will affect its price).  
 	value = a["availability"] - b["availability"]
 	if value != 0:
 		return -value
 	
+	# In the event that both set prices & availability are identical, then
+	# we don't care about any other comparison so return as equal.  
 	return 0
 
 # ================================================================
@@ -208,6 +336,10 @@ def CompareMarketData(a, b):
 # ================================================================
 	
 def GetAllUserGames():
+	'''
+	Stage I function.  Retrieves the games owned by the given Steam profile.  
+    '''
+
 	print "-" * 32
 	print "Stage I -- Finding all games owned by %s" % TARGET_STEAM_USERNAME
 	print "-" * 32
@@ -222,6 +354,12 @@ def GetAllUserGames():
 	print
 	
 def GetBadges():
+	'''
+	Stage II function.  Retrieves the badges for the user's owned games.  
+	A game's Normal & Foil badges are not grouped together and appear as 
+	individual games.  
+    '''
+
 	if not os.path.isfile("output/games.json"):
 		print "ERROR: games.json not found, run GetAllUserGames() first"
 		sys.exit()
@@ -264,8 +402,13 @@ def GetBadges():
 	print "%d badges found across %d games" % (len(badges), len(games))
 	print "=" * 32
 	print
-	
+
 def GetCards():
+	'''
+	Stage III function.  Processes the list of badges to provide a list of 
+	badges that can be created or leveled up by the user.  Badges where the user is already at max level are removed. 
+    '''
+
 	if not os.path.isfile("output/badges.json"):
 		print "ERROR: badges.json not found, run GetBadges() first"
 		sys.exit()
@@ -287,6 +430,8 @@ def GetCards():
 		b["cards"] = GetBadgeCards(html)
 		
 		if CanLevelBadgeUp(b):
+			# If the badge can be created or levelled up, analyse how far 
+			# along the user already is, based on their inventory.  
 			numOwnedCards = len([own for own in b["cards"].itervalues() if own])
 			numTotalCards = len(b["cards"])
 			
@@ -299,6 +444,8 @@ def GetCards():
 		
 		print
 
+	# Filters the badges so that only the badges available to the user
+	# remain.  
 	badges = [b for b in badges if CanLevelBadgeUp(b)]
 			
 	with codecs.open("output/available_badges.json", "w", "utf-8") as output:
@@ -309,6 +456,11 @@ def GetCards():
 	print
 
 def SearchMarketData():
+	'''
+	Stage IV function.  Bulk searches the Community Market for listings on 
+	each badge's cards at time of call
+    '''
+
 	if not os.path.isfile("output/available_badges.json"):
 		print "ERROR: available_badges.json not found, run GetCards() first"
 		sys.exit()
@@ -326,19 +478,36 @@ def SearchMarketData():
 		
 		listings = GetMarketListingsForBadge(b["id"], b["rarity"] == "foil")
 		
+		# Match each listing with the card likely associated with it.  This is 
+		# a sadly nasty process, as there appears to be no uniform naming 
+		# convention between badge name & listing name; it varies between 
+		# games.  
+		# NOTE: It may be possible to use the "Search Market" links on each 
+		# badge's page to get a reliable link, but that'd likely require 
+		# querying each card, multiplying the requests by x5-20.  We only need 
+		# cards' price & number available at present.  
 		for l in listings:
+			# Look for an identical match between card name & listing name 
+			# first.  
 			matchingCard = next((c for c in b["cards"] if c == l["name"]), None)
 			
+			# If no match and a Foil badge, add "(Foil)" at the end as a safety
+			# check.  
+			# NOTE: This check is annoying, but is added to address a bug 
+			# involving Costume Quest, and the "Fall Valley" & "Fall Valley 
+			# Festival" cards.  
 			if matchingCard == None and b["rarity"] == "foil":
 				matchingCard = next((c for c in b["cards"] if ("%s (Foil)" % c) == l["name"]), None)
 			
+			# If no match, see whether the listing has a close but not 
+			# identical match (designed to handle listings with the pattern of 
+			# "<CARD_NAME> (Trading Card)" or similar).  
 			if matchingCard == None:
 				matchingCard = next((c for c in b["cards"] if c in l["name"]), None)
 
-			if matchingCard != None:
-				if "Costume Quest" in b["name"]:
-					print (l["name"], matchingCard)
-			
+			# On assumption of a match there is a match (there should be...), 
+			# add it to the existing badge list.  
+			if matchingCard != None:		
 				l["ownCard"] = b["cards"][matchingCard]
 			
 				b["cards"][matchingCard] = l
@@ -351,6 +520,11 @@ def SearchMarketData():
 	print
 		
 def AnalyseMarketData():
+	'''
+	Stage V function.  Analyse & aggregate the market data, and use it to 
+	generate a list of badges in order of cost & availability in CSV format.  
+    '''
+
 	if not os.path.isfile("output/market_data.json"):
 		print "ERROR: market_data.json not found, run SearchMarketData() first"
 		sys.exit()
@@ -383,7 +557,9 @@ def AnalyseMarketData():
 	
 	with codecs.open("output/results.json", "w", "utf-8") as output:
 		json.dump(results, output, indent = 4)
-		
+	
+	# Generate the CSV.  No special treatment is done here to ensure that 
+	# the data can be imported by any spreadsheet application.  
 	with codecs.open("results.csv", "w", "utf-8") as output:
 		output.write(",".join(("Badge", "Rarity", "Progress", "Set Price", "Availability", "Link")))
 		output.write("\r\n") 
